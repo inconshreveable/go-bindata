@@ -95,3 +95,17 @@ even increase the size of the data.
 
 The default behaviour of the program is to use compression.
 
+
+### Optional build constraints
+
+You may pass the `-b` flag to prefix the generated file with build constraints.
+[Build Constraints](http://golang.org/pkg/go/build/#hdr-Build_Constraints)
+
+For example, specifying `-b release` will cause the generated file to begin
+with:
+
+    // +build release
+
+This is often useful when you want to only want to compile your binary data
+into release builds and read the data out dynamically while you develop. This
+allows you to avoid recompiling when your binary data changes.

@@ -11,26 +11,34 @@ import (
 )
 
 // translate translates the input file to go source code.
-func translate(input io.Reader, output io.Writer, pkgname, funcname string, uncompressed, nomemcpy bool) {
+func translate(input io.Reader, output io.Writer, pkgname, buildtags, funcname string, uncompressed, nomemcpy bool) {
+        write_header(output, pkgname, buildtags)
 	if nomemcpy {
 		if uncompressed {
-			translate_nomemcpy_uncomp(input, output, pkgname, funcname)
+			translate_nomemcpy_uncomp(input, output, funcname)
 		} else {
-			translate_nomemcpy_comp(input, output, pkgname, funcname)
+			translate_nomemcpy_comp(input, output, funcname)
 		}
 	} else {
 		if uncompressed {
-			translate_memcpy_uncomp(input, output, pkgname, funcname)
+			translate_memcpy_uncomp(input, output, funcname)
 		} else {
-			translate_memcpy_comp(input, output, pkgname, funcname)
+			translate_memcpy_comp(input, output, funcname)
 		}
 	}
 }
 
-// input -> gzip -> gowriter -> output.
-func translate_memcpy_comp(input io.Reader, output io.Writer, pkgname, funcname string) {
-	fmt.Fprintf(output, `package %s
+func write_header(output io.Writer, pkgname, buildtags string) {
+        if buildtags != "" {
+            fmt.Fprintf(output, "// +build %s\n\n", buildtags)
+        }
 
+        fmt.Fprintf(output, "package %s\n", pkgname)
+}
+
+// input -> gzip -> gowriter -> output.
+func translate_memcpy_comp(input io.Reader, output io.Writer, funcname string) {
+	fmt.Fprintf(output, `
 import (
 	"bytes"
 	"compress/gzip"
@@ -39,7 +47,7 @@ import (
 
 // %s returns raw, uncompressed file data.
 func %s() []byte {
-	gz, err := gzip.NewReader(bytes.NewBuffer([]byte{`, pkgname, funcname, funcname)
+	gz, err := gzip.NewReader(bytes.NewBuffer([]byte{`, funcname, funcname)
 
 	gz := gzip.NewWriter(&ByteWriter{Writer: output})
 	io.Copy(gz, input)
@@ -61,12 +69,11 @@ func %s() []byte {
 }
 
 // input -> gzip -> gowriter -> output.
-func translate_memcpy_uncomp(input io.Reader, output io.Writer, pkgname, funcname string) {
-	fmt.Fprintf(output, `package %s
-
+func translate_memcpy_uncomp(input io.Reader, output io.Writer, funcname string) {
+	fmt.Fprintf(output, `
 // %s returns raw file data.
 func %s() []byte {
-	return []byte{`, pkgname, funcname, funcname)
+	return []byte{`, funcname, funcname)
 
 	io.Copy(&ByteWriter{Writer: output}, input)
 
@@ -76,9 +83,8 @@ func %s() []byte {
 }
 
 // input -> gzip -> gowriter -> output.
-func translate_nomemcpy_comp(input io.Reader, output io.Writer, pkgname, funcname string) {
-	fmt.Fprintf(output, `package %s
-
+func translate_nomemcpy_comp(input io.Reader, output io.Writer, funcname string) {
+	fmt.Fprintf(output, `
 import (
 	"bytes"
 	"compress/gzip"
@@ -87,7 +93,7 @@ import (
 	"unsafe"
 )
 
-var _%s = "`, pkgname, funcname)
+var _%s = "`, funcname)
 
 	gz := gzip.NewWriter(&StringWriter{Writer: output})
 	io.Copy(gz, input)
@@ -121,15 +127,14 @@ func %s() []byte {
 }
 
 // input -> gowriter -> output.
-func translate_nomemcpy_uncomp(input io.Reader, output io.Writer, pkgname, funcname string) {
-	fmt.Fprintf(output, `package %s
-
+func translate_nomemcpy_uncomp(input io.Reader, output io.Writer, funcname string) {
+	fmt.Fprintf(output, `
 import (
 	"reflect"
 	"unsafe"
 )
 
-var _%s = "`, pkgname, funcname)
+var _%s = "`, funcname)
 
 	io.Copy(&StringWriter{Writer: output}, input)
 
