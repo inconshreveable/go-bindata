@@ -11,8 +11,8 @@ import (
 )
 
 // translate translates the input file to go source code.
-func translate(input io.Reader, output io.Writer, pkgname, buildtags, funcname string, uncompressed, nomemcpy bool) {
-        write_header(output, pkgname, buildtags)
+func translate(input io.Reader, output io.Writer, pkgname, build, funcname string, uncompressed, nomemcpy bool) {
+	write_header(output, pkgname, build)
 	if nomemcpy {
 		if uncompressed {
 			translate_nomemcpy_uncomp(input, output, funcname)
@@ -28,12 +28,12 @@ func translate(input io.Reader, output io.Writer, pkgname, buildtags, funcname s
 	}
 }
 
-func write_header(output io.Writer, pkgname, buildtags string) {
-        if buildtags != "" {
-            fmt.Fprintf(output, "// +build %s\n\n", buildtags)
-        }
+func write_header(output io.Writer, pkgname, build string) {
+	if build != "" {
+		fmt.Fprintf(output, "// +build %s\n\n", build)
+	}
 
-        fmt.Fprintf(output, "package %s\n", pkgname)
+	fmt.Fprintf(output, "package %s\n", pkgname)
 }
 
 // input -> gzip -> gowriter -> output.

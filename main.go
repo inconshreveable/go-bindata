@@ -24,7 +24,7 @@ var (
 	in           = flag.String("i", "", "Path to the input file. Alternatively, pipe the file data into stdin.")
 	out          = flag.String("o", "", "Optional path to the output file.")
 	pkgname      = flag.String("p", "", "Optional name of the package to generate.")
-	buildtags    = flag.String("b", "", "Optional build tags to place in the generated file.")
+	build        = flag.String("b", "", "Optional build constraints to place in the generated file.")
 	funcname     = flag.String("f", "", "Optional name of the function/variable to generate.")
 	uncompressed = flag.Bool("u", false, "The specified resource will /not/ be GZIP compressed when this flag is specified. This alters the generated output code.")
 	nomemcopy    = flag.Bool("m", false, "Use the memcopy hack to get rid of unnecessary memcopies. Refer to the documentation to see what implications this carries.")
@@ -35,7 +35,7 @@ func main() {
 	parseArgs()
 
 	if pipe {
-		translate(os.Stdin, os.Stdout, *pkgname, *buildtags, *funcname, *uncompressed, *nomemcopy)
+		translate(os.Stdin, os.Stdout, *pkgname, *build, *funcname, *uncompressed, *nomemcopy)
 	} else {
 		fs, err := os.Open(*in)
 		if err != nil {
@@ -53,7 +53,7 @@ func main() {
 
 		defer fd.Close()
 
-		translate(fs, fd, *pkgname, *buildtags, *funcname, *uncompressed, *nomemcopy)
+		translate(fs, fd, *pkgname, *build, *funcname, *uncompressed, *nomemcopy)
 
 		fmt.Fprintln(os.Stdout, "[i] Done.")
 	}
