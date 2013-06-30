@@ -8,55 +8,73 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path"
 	"runtime"
-	"strings"
 	"unicode"
+        "path"
+        "path/filepath"
 )
 
 const (
 	AppName    = "bindata"
-	AppVersion = "1.0.0"
+	AppVersion = "2.0.0"
 )
 
 var (
-	pipe         = false
-	in           = flag.String("i", "", "Path to the input file. Alternatively, pipe the file data into stdin.")
-	out          = flag.String("o", "", "Optional path to the output file.")
-	pkgname      = flag.String("p", "", "Optional name of the package to generate.")
-	build        = flag.String("b", "", "Optional build constraints to place in the generated file.")
-	funcname     = flag.String("f", "", "Optional name of the function/variable to generate.")
-	uncompressed = flag.Bool("u", false, "The specified resource will /not/ be GZIP compressed when this flag is specified. This alters the generated output code.")
-	nomemcopy    = flag.Bool("m", false, "Use the memcopy hack to get rid of unnecessary memcopies. Refer to the documentation to see what implications this carries.")
+	in           []string // flag.Args()
+        outDir       = flag.String("o", ".", "Optional path to the output directory.")
+	pkgname      = flag.String("p", "assets", "Optional name of the package to generate.")
 	version      = flag.Bool("v", false, "Display version information.")
 )
 
 func main() {
 	parseArgs()
 
-	if pipe {
-		translate(os.Stdin, os.Stdout, *pkgname, *build, *funcname, *uncompressed, *nomemcopy)
-	} else {
-		fs, err := os.Open(*in)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[e] %s\n", err)
-			return
-		}
+        inputs := make([]Input, 0)
+        for _, dirpath := range in {
+            err := filepath.Walk(dirpath, func(path string, info os.FileInfo, err error) error {
+                if info.IsDir() {
+                    return nil
+                }
 
-		defer fs.Close()
+                if err != nil {
+                    return nil
+                }
 
-		fd, err := os.Create(*out)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[e] %s\n", err)
-			return
-		}
+                fs, err := os.Open(path)
+                if err != nil {
+                        fmt.Fprintf(os.Stderr, "[e] %s\n", err)
+                        os.Exit(1)
+                }
 
-		defer fd.Close()
+                inputs = append(inputs, Input{ path, fs })
 
-		translate(fs, fd, *pkgname, *build, *funcname, *uncompressed, *nomemcopy)
+                return nil
+            })
 
-		fmt.Fprintln(os.Stdout, "[i] Done.")
-	}
+            if err != nil {
+                fmt.Fprintf(os.Stderr, "[e] %s\n", err)
+                os.Exit(1)
+            }
+        }
+
+        rfd, err := os.Create(path.Join(*outDir, "assets_release.go"))
+        if err != nil {
+                fmt.Fprintf(os.Stderr, "[e] %s\n", err)
+                return
+        }
+
+        defer rfd.Close()
+
+        dfd, err := os.Create(path.Join(*outDir, "assets_debug.go"))
+        if err != nil {
+                fmt.Fprintf(os.Stderr, "[e] %s\n", err)
+        }
+
+        defer dfd.Close()
+
+        translate(inputs, rfd, dfd, *pkgname)
+
+        fmt.Fprintln(os.Stdout, "[i] Done.\n")
 }
 
 // parseArgs processes and verifies commandline arguments.
@@ -69,34 +87,9 @@ func parseArgs() {
 		os.Exit(0)
 	}
 
-	pipe = len(*in) == 0
-
-	if !pipe && len(*out) == 0 {
-		// Ensure we create our own output filename that does not already exist.
-		dir, file := path.Split(*in)
-
-		*out = path.Join(dir, file) + ".go"
-		if _, err := os.Lstat(*out); err == nil {
-			// File already exists. Pad name with a sequential number until we
-			// find a name that is available.
-			count := 0
-			for {
-				f := path.Join(dir, fmt.Sprintf("%s.%d.go", file, count))
-				if _, err := os.Lstat(f); err != nil {
-					*out = f
-					break
-				}
-
-				count++
-			}
-		}
-
-		fmt.Fprintf(os.Stderr, "[w] No output file specified. Using '%s'.\n", *out)
-	}
-
 	if len(*pkgname) == 0 {
-		fmt.Fprintln(os.Stderr, "[w] No package name specified. Using 'main'.")
-		*pkgname = "main"
+		fmt.Fprintln(os.Stderr, "[w] No package name specified. Using 'assets'.\n")
+		*pkgname = "assets"
 	} else {
 		if unicode.IsDigit(rune((*pkgname)[0])) {
 			// Identifier can't start with a digit.
@@ -104,25 +97,5 @@ func parseArgs() {
 		}
 	}
 
-	if len(*funcname) == 0 {
-		if pipe {
-			// Can't infer from input file name in this mode.
-			fmt.Fprintln(os.Stderr, "[e] No function name specified.")
-			os.Exit(1)
-		}
-
-		_, file := path.Split(*in)
-		file = strings.ToLower(file)
-		file = strings.Replace(file, " ", "_", -1)
-		file = strings.Replace(file, ".", "_", -1)
-		file = strings.Replace(file, "-", "_", -1)
-
-		if unicode.IsDigit(rune(file[0])) {
-			// Identifier can't start with a digit.
-			file = "_" + file
-		}
-
-		fmt.Fprintf(os.Stderr, "[w] No function name specified. Using '%s'.\n", file)
-		*funcname = file
-	}
+        in = flag.Args()
 }
