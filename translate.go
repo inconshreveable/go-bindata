@@ -10,144 +10,83 @@ import (
 	"io"
 )
 
+type Input struct {
+    name string
+    rd io.ReadCloser
+}
+
 // translate translates the input file to go source code.
-func translate(input io.Reader, output io.Writer, pkgname, funcname string, uncompressed, nomemcpy bool) {
-	if nomemcpy {
-		if uncompressed {
-			translate_nomemcpy_uncomp(input, output, pkgname, funcname)
-		} else {
-			translate_nomemcpy_comp(input, output, pkgname, funcname)
-		}
-	} else {
-		if uncompressed {
-			translate_memcpy_uncomp(input, output, pkgname, funcname)
-		} else {
-			translate_memcpy_comp(input, output, pkgname, funcname)
-		}
-	}
+func translate(inputs []Input, releaseOutput, debugOutput io.Writer, pkgname string) {
+	translate_nomemcpy_comp(inputs, releaseOutput, debugOutput, pkgname)
 }
 
 // input -> gzip -> gowriter -> output.
-func translate_memcpy_comp(input io.Reader, output io.Writer, pkgname, funcname string) {
-	fmt.Fprintf(output, `package %s
+func translate_nomemcpy_comp(inputs []Input, releaseOutput, debugOutput io.Writer, pkgname string) {
+	fmt.Fprintf(debugOutput, `// +build !release
+
+package %s
 
 import (
-	"bytes"
-	"compress/gzip"
-	"io"
+	"io/ioutil"
 )
 
-// %s returns raw, uncompressed file data.
-func %s() []byte {
-	gz, err := gzip.NewReader(bytes.NewBuffer([]byte{`, pkgname, funcname, funcname)
-
-	gz := gzip.NewWriter(&ByteWriter{Writer: output})
-	io.Copy(gz, input)
-	gz.Close()
-
-	fmt.Fprint(output, `
-	}))
-
-	if err != nil {
-		panic("Decompression failed: " + err.Error())
-	}
-
-	var b bytes.Buffer
-	io.Copy(&b, gz)
-	gz.Close()
-
-	return b.Bytes()
-}`)
+func ReadAsset(name string) ([]byte, error) {
+	return ioutil.ReadFile(name)
 }
+`, pkgname)
+	fmt.Fprintf(releaseOutput, `// +build release
 
-// input -> gzip -> gowriter -> output.
-func translate_memcpy_uncomp(input io.Reader, output io.Writer, pkgname, funcname string) {
-	fmt.Fprintf(output, `package %s
-
-// %s returns raw file data.
-func %s() []byte {
-	return []byte{`, pkgname, funcname, funcname)
-
-	io.Copy(&ByteWriter{Writer: output}, input)
-
-	fmt.Fprint(output, `
-	}
-}`)
-}
-
-// input -> gzip -> gowriter -> output.
-func translate_nomemcpy_comp(input io.Reader, output io.Writer, pkgname, funcname string) {
-	fmt.Fprintf(output, `package %s
+package %s
 
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"reflect"
 	"unsafe"
 )
 
-var _%s = "`, pkgname, funcname)
+var assets = map[string] string { 
+`, pkgname)
 
-	gz := gzip.NewWriter(&StringWriter{Writer: output})
-	io.Copy(gz, input)
-	gz.Close()
+	for _, in := range inputs {
+		fmt.Fprintf(releaseOutput, "\n\t\"%s\": \"", in.name)
+		gz := gzip.NewWriter(&StringWriter{Writer: releaseOutput})
+		io.Copy(gz, in.rd)
+		gz.Close()
+		in.rd.Close()
+		fmt.Fprintf(releaseOutput, `",`)
 
-	fmt.Fprintf(output, `"
+	}
 
-// %s returns raw, uncompressed file data.
-func %s() []byte {
+	fmt.Fprintf(releaseOutput, `
+}
+
+func ReadAsset(name string) ([]byte, error) {
+	contents, ok := assets[name]
+	if !ok {
+	    return nil, fmt.Errorf("Asset %%s not compiled into binary", name)
+	}
 	var empty [0]byte
-	sx := (*reflect.StringHeader)(unsafe.Pointer(&_%s))
+	sx := (*reflect.StringHeader)(unsafe.Pointer(&contents))
 	b := empty[:]
 	bx := (*reflect.SliceHeader)(unsafe.Pointer(&b))
 	bx.Data = sx.Data
-	bx.Len = len(_%s)
+	bx.Len = len(contents)
 	bx.Cap = bx.Len
 
 	gz, err := gzip.NewReader(bytes.NewBuffer(b))
 
 	if err != nil {
-		panic("Decompression failed: " + err.Error())
+		return nil, err
 	}
 
 	var buf bytes.Buffer
 	io.Copy(&buf, gz)
 	gz.Close()
 
-	return buf.Bytes()
-}
-`, funcname, funcname, funcname, funcname)
-}
+	return buf.Bytes(), nil
+}`)
 
-// input -> gowriter -> output.
-func translate_nomemcpy_uncomp(input io.Reader, output io.Writer, pkgname, funcname string) {
-	fmt.Fprintf(output, `package %s
-
-import (
-	"reflect"
-	"unsafe"
-)
-
-var _%s = "`, pkgname, funcname)
-
-	io.Copy(&StringWriter{Writer: output}, input)
-
-	fmt.Fprintf(output, `"
-
-// %s returns raw file data.
-//
-// WARNING: The returned byte slice is READ-ONLY.
-// Attempting to alter the slice contents will yield a runtime panic.
-func %s() []byte {
-	var empty [0]byte
-	sx := (*reflect.StringHeader)(unsafe.Pointer(&_%s))
-	b := empty[:]
-	bx := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	bx.Data = sx.Data
-	bx.Len = len(_%s)
-	bx.Cap = bx.Len
-	return b
-}
-`, funcname, funcname, funcname, funcname)
 }
